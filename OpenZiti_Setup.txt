@@ -1,0 +1,161 @@
+--- VM 1 ---
+-- Host file --
+sudo nano /etc/hosts
+
+192.168.124.2 ziti-controller.company.nl
+192.168.125.3 ziti-router.company.nl
+192.168.126.4 ziti-companyNL.company.nl
+
+-- Controller Setup --
+curl -sSLf https://get.openziti.io/tun/package-repos.gpg | sudo gpg --dearmor --output /usr/share/keyrings/openziti.gpg
+sudo chmod a+r /usr/share/keyrings/openziti.gpg
+
+sudo tee /etc/apt/sources.list.d/openziti-release.list >/dev/null <<EOF
+deb [signed-by=/usr/share/keyrings/openziti.gpg] https://packages.openziti.org/zitipax-openziti-deb-stable debian main
+EOF
+
+sudo apt update
+sudo apt install openziti-controller
+
+sudo /opt/openziti/etc/controller/bootstrap.bash
+
+###
+ziti-controller.company.nl
+443
+###
+
+sudo apt install openziti-console
+
+sudo systemctl enable --now ziti-controller.service
+
+sudo systemctl status --now ziti-controller.service
+
+-- Replace config.yml --
+input file. config.yml
+
+sudo nano /var/lib/ziti-controller/config.yml
+
+-- Generate new cert --
+sudo systemctl stop ziti-controller
+
+export ZITI_PKI="/var/lib/ziti-controller/pki"
+export DNS_ALLOW_LIST="ziti-controller.company.nl,localhost"
+export IP_ALLOW_LIST="127.0.0.1,::1"
+export ZITI_CA_NAME="intermediate"
+export FILE_NAME_ROOT="company-2025"
+
+source /dev/stdin <<< "$(wget -qO- https://get.openziti.io/quick/ziti-cli-functions.sh)"
+
+sudo ziti pki create server --pki-root="${ZITI_PKI}" --ca-name "${ZITI_CA_NAME}" \
+  --server-file "${FILE_NAME_ROOT}-server" \
+  --dns "${DNS_ALLOW_LIST}" --ip "${IP_ALLOW_LIST}" \
+  --server-name "${FILE_NAME_ROOT} server certificate"
+
+sudo ziti pki create client --pki-root="${ZITI_PKI}" --ca-name "${ZITI_CA_NAME}" \
+  --client-file "${FILE_NAME_ROOT}-client" \
+  --key-file "${FILE_NAME_ROOT}-server" \
+  --client-name "${FILE_NAME_ROOT}"
+
+sudo systemctl start ziti-controller
+
+-- Cron update Job --
+sudo crontab -e
+1
+30 2 * * * apt update && apt upgrade -y
+
+
+--- VM 2 ---
+-- Host file --
+sudo nano /etc/hosts
+
+192.168.124.2 ziti-controller.company.nl
+192.168.125.3 ziti-router.company.nl
+192.168.126.4 ziti-companyNL.company.nl
+
+-- Router Setup --
+
+curl -sSLf https://get.openziti.io/tun/package-repos.gpg | sudo gpg --dearmor --output /usr/share/keyrings/openziti.gpg
+sudo chmod a+r /usr/share/keyrings/openziti.gpg
+
+sudo tee /etc/apt/sources.list.d/openziti-release.list >/dev/null <<EOF
+deb [signed-by=/usr/share/keyrings/openziti.gpg] https://packages.openziti.org/zitipax-openziti-deb-stable debian main
+EOF
+
+sudo apt update
+sudo apt install openziti-router
+
+sudo /opt/openziti/etc/router/bootstrap.bash
+
+###
+ziti-controller.company.nl
+443
+/path/to/router.jwt
+ziti-router.company.nl
+443
+###
+
+sudo systemctl enable --now ziti-router.service
+
+-- Cron update Job --
+sudo crontab -e
+1
+30 2 * * * apt update && apt upgrade -y
+
+--- VM 1 ---
+-- Router Config --
+ziti edge login https://localhost:8443 -u admin -p P@ssword
+
+ziti edge create edge-router-policy all-ids-public-ers --identity-roles '#all' --edge-router-roles '#public'
+ziti edge update edge-router ziti-router -a 'public'
+ziti edge create service-edge-router-policy allow-all-serp --service-roles '#all' --edge-router-roles '#all'
+
+-- Admin Setup --
+ziti edge login https://localhost:8443 -u admin -p P@ssword
+
+ziti edge create identity adminsjoerd --admin --jwt-output-file adminsjoerd.jwt
+ziti edge enroll adminsjoerd.jwt
+
+sudo nano adminsjoerd.json
+edit https://ziti-controller.company.nl:443 to https://localhost:8443 
+
+ziti edge login https://localhost:8443 --file adminsjoerd.json
+
+ziti ops unwrap adminsjoerd.json
+openssl pkcs12 -export -in adminsjoerd.cert -inkey adminsjoerd.key -out adminsjoerd.p12 -name "adminsjoerd" -legacy -password 'pass:P@ssword'
+
+--- VM 3 ---
+-- Host file --
+sudo nano /etc/hosts
+
+192.168.124.2 ziti-controller.company.nl
+192.168.125.3 ziti-router.company.nl
+192.168.126.4 ziti-companyNL.company.nl
+
+-- Router Setup --
+
+curl -sSLf https://get.openziti.io/tun/package-repos.gpg | sudo gpg --dearmor --output /usr/share/keyrings/openziti.gpg
+sudo chmod a+r /usr/share/keyrings/openziti.gpg
+
+sudo tee /etc/apt/sources.list.d/openziti-release.list >/dev/null <<EOF
+deb [signed-by=/usr/share/keyrings/openziti.gpg] https://packages.openziti.org/zitipax-openziti-deb-stable debian main
+EOF
+
+sudo apt update
+sudo apt install openziti-router
+
+sudo /opt/openziti/etc/router/bootstrap.bash
+
+###
+ziti-controller.company.nl
+443
+/path/to/router.jwt
+ziti-companyNL.company.nl
+443
+###
+
+sudo systemctl enable --now ziti-router.service
+
+-- Cron update Job --
+sudo crontab -e
+1
+30 2 * * * apt update && apt upgrade -y
