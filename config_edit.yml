@@ -1,0 +1,49 @@
+###
+  - name: dark-management
+    bindPoints:
+      - interface: 0.0.0.0:8443
+        address: localhost:8443
+    apis:
+      - binding: edge-management
+        options: { }
+      - binding: fabric
+        options: { }
+      - binding: zac
+        options:
+          location: /opt/openziti/share/console
+          indexFile: index.html
+		  
+###
+  - name: client-management
+    bindPoints:
+      - interface: 0.0.0.0:443
+        address: ziti-controller.company.nl:443
+
+    identity:
+      ca:          "pki/root/certs/root.cert"
+      key:         "pki/intermediate/keys/company-2025-server.key"
+      server_cert: "pki/intermediate/certs/company-2025-server.chain.pem"
+      cert:        "pki/intermediate/certs/company-2025-client.chain.pem"
+      #alt_server_certs:
+      #- server_cert: ""
+      #  server_key:  ""
+
+    options:
+      idleTimeout: 5000ms  #http timeouts, new
+      readTimeout: 5000ms
+      writeTimeout: 100000ms
+      minTLSVersion: TLS1.2
+      maxTLSVersion: TLS1.3
+    apis:
+#      - binding: edge-management
+#        options: { }
+      - binding: edge-client
+        options: { }
+#      - binding: fabric
+#        options: { }
+      - binding: edge-oidc
+        options: { }
+#      - binding: zac
+#        options:
+#          location: /opt/openziti/share/console
+#          indexFile: index.html
